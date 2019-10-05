@@ -1,0 +1,9 @@
+## To do
+
+* Add ebpmf_point_gamma
+
+* Find a way to compare RMSE between oracle and fitted
+
+* Try on real genetics data
+
+
