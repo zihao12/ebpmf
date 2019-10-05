@@ -1,5 +1,5 @@
-# ebpm
-R package to fit tthe Empirical Bayes Poisson Matrix Factorization
+# ebpmf
+R package to fit the Empirical Bayes Poisson Matrix Factorization
 
 ## Quick Start
 
