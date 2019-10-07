@@ -1,3 +1,5 @@
+context("test ebpmf_exponential_mixture.R")
+
 library(NNLM)
 library(gtools)
 
@@ -45,6 +47,7 @@ scale_b = 5
 sim = simulate_pm(n, p, dl, df, K, scale_b = scale_b)
 
 ## ebpmf
+#browser()
 out_ebpmf = ebpmf::ebpmf_exponential_mixture(sim$X, K, maxiter.out = 100)
 
 ## nnmf

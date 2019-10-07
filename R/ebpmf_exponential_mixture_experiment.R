@@ -30,10 +30,9 @@
 #' To add
 
 #'
-#' @export ebpmf_exponential_mixture
+#' @export  ebpmf_exponential_mixture_experiment
 
-
-ebpmf_exponential_mixture <- function(X, K, m = 2, maxiter.out = 10, maxiter.int = 1, seed = 123, verbose = T){
+ebpmf_exponential_mixture_experiment <- function(X, K, m = 2, maxiter.out = 10, maxiter.int = 1, verbose = F, seed = 123){
   set.seed(123)
   start = proc.time()
   qg = initialize_qg(X, K)
@@ -41,25 +40,37 @@ ebpmf_exponential_mixture <- function(X, K, m = 2, maxiter.out = 10, maxiter.int
   runtime_rank1 = 0
   runtime_ez = 0
 
+  ELBOs = c()
   for(iter in 1:maxiter.out){
+    ELBO = 0
+    ## get <Z_ijk>
+    start = proc.time()
+    tmp = get_Ez(X, qg, K)
+    Ez = tmp$Ez
+    psi = tmp$psi
+    rm(tmp)
+    runtime_ez = runtime_ez + (proc.time() - start)[[3]]
     #print(sprintf("iter: %d", iter))
     for(k in 1:K){
-      ## get row & column sum of <Z_ijk>
-      start = proc.time()
-      Ez = get_Ez_sums(X, qg, k, K)
-      runtime_ez = runtime_ez + (proc.time() - start)[[3]]
       ## update q, g
       start = proc.time()
-      tmp = ebpmf_rank1_exponential_helper(Ez$rsum,Ez$csum,NULL,m, maxiter.int)
+      tmp = ebpmf_rank1_exponential_helper(rowSums(Ez[,,k]),colSums(Ez[,,k]),NULL,m, maxiter.int)
+      ELBO = ELBO + compute_elbo(Ez[,,k], tmp)
       runtime_rank1 = runtime_rank1 + (proc.time() - start)[[3]]
       qg = update_qg(tmp, qg, k)
     }
+    ELBO = ELBO + sum(Ez*log(psi))
+    if(verbose){
+      print("iter         ELBO")
+      print(sprintf("%d:    %f", iter, ELBO))
+    }
+    ELBOs <- c(ELBOs, ELBO)
   }
   print("summary of  runtime:")
   print(sprintf("init           : %f", runtime_init))
   print(sprintf("Ez     per time: %f", runtime_ez/(iter*K)))
   print(sprintf("rank1  per time: %f", runtime_rank1/(iter*K)))
-  return(qg)
+  return(list(qg = qg, ELBO = ELBOs))
 }
 
 ## ================== helper functions ==================================
@@ -93,7 +104,7 @@ initialize_qg <- function(X, K, seed = 123){
 }
 
 ## compute the row & col sum of <Z_ijk> for a given k
-get_Ez_sums <- function(X, qg, k, K){
+get_Ez <- function(X, qg,K){
   n = nrow(X)
   p = ncol(X)
   psi = array(dim = c(n, p, K))
@@ -102,11 +113,10 @@ get_Ez_sums <- function(X, qg, k, K){
     psi[,,d] = outer(qg$qls_mean_log[,d], qg$qfs_mean_log[,d], "+")
   }
   ## do softmax
-  #browser()
   psi = softmax3d(psi)
   Ez = as.vector(psi)*as.vector(X)
   dim(Ez) = dim(psi)
-  return(list(rsum = rowSums(Ez[,,k]), csum = colSums(Ez[,,k])))
+  return(list(Ez = Ez, psi = psi))
 }
 
 softmax3d <- function(x){
@@ -132,24 +142,37 @@ ebpmf_rank1_exponential_helper <- function(X_rowsum,X_colsum, init = NULL, m = 2
   for(i in 1:maxiter){
     ## update q(f), g(f)
     sum_El = sum(ql$mean)
-    tmp = ebpm::ebpm_exponential_mixture(x = X_colsum, s = replicate(p,sum_El), m = m)
-    qf = tmp$posterior
-    gf = tmp$fitted_g
-    ll_f = tmp$log_likelihood
+    tmp_f = ebpm::ebpm_exponential_mixture(x = X_colsum, s = replicate(p,sum_El), m = m)
+    qf = tmp_f$posterior
+    gf = tmp_f$fitted_g
+    ll_f = tmp_f$log_likelihood
     ## update q(l), g(l)
     sum_Ef = sum(qf$mean)
-    tmp = ebpm_exponential_mixture(x = X_rowsum, s = replicate(n,sum_Ef), m = m)
-    ql = tmp$posterior
-    gl = tmp$fitted_g
-    ll_l = tmp$log_likelihood
+    tmp_l = ebpm_exponential_mixture(x = X_rowsum, s = replicate(n,sum_Ef), m = m)
+    ql = tmp_l$posterior
+    gl = tmp_l$fitted_g
+    ll_l = tmp_l$log_likelihood
     qg = list(ql = ql, gl = gl, qf = qf, gf = gf, ll_f = ll_f, ll_l = ll_l)
   }
   return(qg)
 }
 
 
-
-
+compute_elbo <- function(X, qg){
+  ql = qg$ql
+  gl = qg$gl
+  ll_l = qg$ll_l
+  qf = qg$qf
+  gf = qg$gf
+  ll_f = qg$ll_f
+  ## compute Eq(logp(X | l, f))
+  term1 = sum(- outer(ql$mean, qf$mean, "*") + X*outer(ql$mean_log, qf$mean_log, "+"))
+  ## compute Eq(log(gL(l)/qL(l)))
+  term2 = ll_l - sum(sum(qf$mean)*ql$mean + rowSums(X)*ql$mean_log)- sum(lgamma(rowSums(X + 1)))
+  ## compute Eq(log(gF(f)/qF(f)))
+  term3 = ll_f - sum(sum(ql$mean)*qf$mean + colSums(X)*qf$mean_log) - sum(lgamma(colSums(X + 1)))
+  return(term1 + term2 + term3)
+}
 
 
 
